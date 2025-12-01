@@ -1,0 +1,287 @@
+!
+! Cisco NX-OS Test Configuration - BAD COMPLIANCE
+! ================================================
+! This configuration demonstrates poor security practices
+! and will fail many compliance checks
+!
+! Device: Nexus 9000 Series
+! Version: 10.6(x)
+!
+
+version 10.6(1)
+
+!
+! === CRITICAL SECURITY GAPS ===
+!
+! CRITICAL: Guest Shell enabled (allows network access!)
+feature guestshell
+
+! FIPS mode not enabled
+! (no fips mode enable)
+
+! Password strength check not enabled
+! (no password strength-check)
+
+!
+! === BASIC DEVICE INFO ===
+!
+hostname NEXUS-INSECURE-01
+
+!
+! === USER MANAGEMENT ===
+!
+! Using weak Type-0 plaintext passwords - CRITICAL!
+username admin password 0 admin123 role network-admin
+username operator password 0 operator role network-operator
+
+! No password history configured
+
+!
+! === AAA CONFIGURATION ===
+!
+! No AAA configured - CRITICAL!
+! (no aaa authentication)
+! (no aaa authorization)
+! (no aaa accounting)
+
+! TACACS+ with weak Type-7 encryption - CRITICAL!
+tacacs-server host 10.10.10.10 key 7 070C285F4D06
+tacacs-server host 10.10.10.11 key 7 095C4F1A0A1218
+
+! No TACACS+ timeout configured
+
+! RADIUS with weak Type-7 encryption
+radius-server host 10.10.10.20 key 7 104D000A0618
+
+!
+! === SSH CONFIGURATION ===
+!
+! SSH enabled but with weak 1024-bit key
+feature ssh
+ssh key rsa 1024
+
+! CRITICAL: Telnet enabled (insecure plaintext protocol!)
+feature telnet
+
+!
+! === CONSOLE AND VTY SECURITY ===
+!
+! No console timeout
+line console
+
+! No VTY timeout or access control
+line vty
+
+! No VTY access list configured
+
+!
+! === SNMP CONFIGURATION ===
+!
+! CRITICAL: Using default SNMP community strings!
+snmp-server community public ro
+snmp-server community private rw
+
+! No SNMPv3 configured
+! No global privacy enforcement
+
+!
+! === LOGGING CONFIGURATION ===
+!
+! No remote logging configured
+! (no logging server)
+
+! No logging source interface
+
+! No timestamp configuration
+
+! Console logging enabled (performance impact)
+logging console 7
+
+! Monitor logging at high verbosity
+logging monitor 7
+
+! No local log file configured
+
+!
+! === DISCOVERY PROTOCOLS ===
+!
+! CRITICAL: CDP enabled globally (exposes device info!)
+feature cdp
+
+! LLDP transmit enabled on all interfaces
+feature lldp
+
+!
+! === NTP CONFIGURATION ===
+!
+! No NTP authentication
+ntp server 10.10.10.50
+ntp server 10.10.10.51
+
+! No NTP source interface
+
+!
+! === BANNER ===
+!
+! No login banner configured
+
+!
+! === MANAGEMENT INTERFACE ===
+!
+interface mgmt0
+  description Management - NO SECURITY!
+  ip address 10.10.10.1/24
+  no shutdown
+
+vrf context management
+  ip route 0.0.0.0/0 10.10.10.254
+
+!
+! === LOOPBACK INTERFACES ===
+!
+interface loopback0
+  description Management Loopback
+  ip address 10.255.255.1/32
+
+!
+! === CONTROL PLANE SECURITY ===
+!
+! No Control Plane Policing configured - CRITICAL!
+! (no copp profile)
+
+! CRITICAL: IP source routing enabled (default)!
+! (no "no ip source-route" command)
+
+!
+! === ROUTING PROTOCOL SECURITY ===
+!
+feature bgp
+feature ospf
+
+! BGP with NO authentication - CRITICAL!
+router bgp 65001
+  router-id 10.255.255.1
+  neighbor 10.1.1.1 remote-as 65002
+    ! No password
+    ! No maximum-prefix
+    ! No TTL security
+
+! OSPF with NO authentication - CRITICAL!
+router ospf 100
+  router-id 10.255.255.1
+
+! No route filtering configured
+
+!
+! === LAYER 2 SECURITY ===
+!
+! DHCP snooping NOT configured
+! (no ip dhcp snooping)
+
+! Dynamic ARP Inspection NOT configured
+! (no ip arp inspection)
+
+!
+! === VLAN CONFIGURATION ===
+!
+vlan 1
+  name default
+
+vlan 10
+  name MANAGEMENT
+  
+vlan 20
+  name SERVERS
+
+! No private VLANs configured
+
+!
+! === INTERFACE CONFIGURATIONS ===
+!
+! Insecure interface configurations
+interface Ethernet1/1
+  description Uplink - NO SECURITY!
+  no switchport
+  ip address 10.1.1.1/30
+  ! No uRPF
+  ! IP redirects enabled (default)
+  ! IP unreachables enabled (default)
+  ! Proxy ARP enabled (default)
+  ! IP directed broadcast enabled (default)
+  ! No DHCP snooping trust
+  ! No ARP inspection trust
+  ! No storm control
+  no shutdown
+
+interface Ethernet1/2
+  description Server Connection - INSECURE!
+  switchport mode access
+  switchport access vlan 20
+  ! DTP negotiation enabled (default)
+  ! No port security
+  ! No BPDU guard
+  ! No storm control
+  ! CDP enabled
+  ! LLDP enabled
+  no shutdown
+
+interface Ethernet1/3
+  description Trunk - USING VLAN 1!
+  switchport mode trunk
+  switchport trunk native vlan 1
+  ! DTP negotiation enabled
+  ! No storm control
+  ! Using default VLAN 1 as native
+  no shutdown
+
+!
+! === VPC CONFIGURATION ===
+!
+! VPC configured but in default VRF (not management)
+feature vpc
+
+vpc domain 1
+  peer-keepalive destination 10.1.1.2 source 10.1.1.1
+  ! No peer-gateway
+  ! No auto-recovery
+  ! No delay restore
+
+!
+! === QOS ===
+!
+! QoS not configured
+
+!
+! === MONITORING ===
+!
+! No SPAN configured
+! No Call-Home configured
+! No Smart Licensing
+! No Scheduler for backups
+! No NetFlow configured
+
+!
+! === ACCESS CONTROL LISTS ===
+!
+! No management ACLs configured
+
+!
+! === HTTP SERVER ===
+!
+! CRITICAL: HTTP server enabled (insecure!)
+feature http-server
+
+! FTP enabled (insecure!)
+feature ftp
+
+!
+! === SPANNING TREE ===
+!
+spanning-tree mode rapid-pvst
+! No loopguard
+! No bridge assurance
+
+!
+! === END OF INSECURE CONFIGURATION ===
+!
+end

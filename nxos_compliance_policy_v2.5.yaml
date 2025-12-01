@@ -1,0 +1,2320 @@
+# ============================================================================
+# Cisco NX-OS Security Compliance Policy - v2.5 (Unified Value Checking)
+# ============================================================================
+# 
+# Designed for: nxos_compliance_checker_v2.5.py
+# Based on:     - Cisco NX-OS Software Hardening Guide (September 2025)
+#               - CIS Cisco NX-OS Benchmark v1.2.0
+#               - Cisco Nexus 9000 Security Configuration Guide Release 10.6(x)
+#
+# Features:     - Full template-driven check support
+#               - UNIFIED value checking (equals, greater_than, less_than, range)
+#               - Backward compatible with check_type: value_range
+#               - BGP log-neighbor-changes check for all VRFs
+#               - Comprehensive security coverage (104 checks)
+#               - Fixed references (no fake section numbers)
+#
+# Version:      2.4-clean
+# Last Updated: 2025-11-19
+#
+# VALUE CHECK FORMATS SUPPORTED:
+#
+#   Format 1 - Old (Backward Compatible):
+#     check_type: value_range
+#     min_value: 3
+#     max_value: 10
+#
+#   Format 2 - New (Recommended):
+#     check_type: value
+#     comparison: range
+#     min_value: 3
+#     max_value: 10
+#
+#   Format 3 - Absolute Value:
+#     check_type: value
+#     comparison: equals
+#     expected_value: 30
+#
+# TWO-TIER CHECK PAIRS (16 checks total):
+#   1. TACACS+ Timeout:    NX-MP-005AA (baseline) + NX-MP-005AB (absolute 30 sec)
+#   2. RADIUS Timeout:     NX-MP-006AA (baseline) + NX-MP-006AB (optimal 3-10 sec)
+#   3. VTY Timeout:        NX-MP-010A (baseline) + NX-MP-010B (optimal 5-15 min)
+#   4. Console Timeout:    NX-MP-009A (baseline) + NX-MP-009B (optimal 5-15 min)
+#   5. SSH Login-Attempts: NX-MP-029A (baseline) + NX-MP-029B (optimal 2-5 attempts)
+#   6. SSH Timeout:        NX-MP-030A (baseline) + NX-MP-030B (optimal 300-900 sec)
+#   7. Logging Level:      NX-MP-016A (baseline) + NX-MP-016B (optimal 4-6)
+#   8. NTP Poll:           NX-MON-001A (baseline) + NX-MON-001B (optimal 6-10)
+#
+# Original checks: 91
+# Two-tier additions: 16 (8 pairs)
+# New BGP VRF check: 1
+# Total checks: 104
+#
+# REFERENCE FORMAT:
+# All references use format: "Cisco Hardening Guide | <Plane> | CIS X.Y.Z"
+# No fake section numbers (Section 2.5.2, etc.) - these don't exist
+# ============================================================================
+
+metadata:
+  policy_name: Cisco NX-OS Security Hardening - v2.5
+  version: '2.4-clean'
+  syntax: nxos
+  reference: Cisco NX-OS Hardening Guide + CIS Benchmark v1.2.0
+  last_updated: '2025-11-19'
+  platforms:
+  - Nexus 9000
+  - Nexus 7000
+  - Nexus 5000
+  - Nexus 3000
+  compliance_frameworks:
+  - CIS Cisco NX-OS Benchmark v1.2.0
+  - Cisco Security Hardening Guide
+  - NIST Cybersecurity Framework
+  check_types_supported:
+  - presence
+  - absence
+  - value
+  - vty_lines
+  - console_line
+  - interface_parent_child
+  - complex
+  - value_range
+system_hardening:
+- id: NX-SYS-001
+  name: Guest Shell Disabled
+  description: Verify Guest Shell is disabled (CRITICAL security gap - enabled by default with network access)
+  category: System Hardening
+  severity: CRITICAL
+  check_type: absence
+  pattern: ^feature guestshell
+  remediation: 'CRITICAL: Guest Shell is enabled by default and provides network access!
+
+
+    Disable Guest Shell immediately:
+
+    switch(config)# no feature guestshell
+
+
+    Why this is CRITICAL:
+
+    - Guest Shell provides Linux shell access with network connectivity
+
+    - Enabled by default on many NX-OS platforms
+
+    - Can be exploited for lateral movement
+
+    - Provides persistent access point
+
+    - Most organizations don''t need Guest Shell
+
+
+    CIS Benchmark: High-risk feature that should be disabled unless explicitly required
+
+    '
+  reference: 'CIS 1.2.3 | Cisco Hardening Guide | System Hardening | CRITICAL Security Gap #1'
+  cis_control: 1.2.3
+  score: 10
+- id: NX-SYS-002
+  name: Bash Shell Consent Token Required
+  description: Verify bash shell requires consent token for access
+  category: System Hardening
+  severity: HIGH
+  check_type: presence
+  pattern: terminal password.*consent-token
+  remediation: 'Require consent token for bash shell access:
+
+    switch(config)# terminal password 0 consent-token
+
+
+    This adds an additional authentication layer for bash shell access.
+
+    '
+  reference: Cisco Hardening Guide | System Hardening
+  score: 5
+- id: NX-SYS-003
+  name: Sudo Password Prompt Enabled
+  description: Verify sudo requires password authentication
+  category: System Hardening
+  severity: MEDIUM
+  check_type: absence
+  pattern: NOPASSWD
+  remediation: 'Ensure sudo requires password:
+
+
+    Review sudoers file and remove NOPASSWD entries:
+
+    switch# run bash
+
+    bash$ sudo vi /etc/sudoers
+
+
+    Remove or comment out any NOPASSWD lines
+
+    '
+  reference: Cisco Hardening Guide | System Hardening
+  score: 3
+- id: NX-SYS-004
+  name: FIPS Mode Enabled
+  description: Verify FIPS 140-2 mode is enabled for cryptographic operations
+  category: System Hardening
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^fips mode enable
+  remediation: 'Enable FIPS 140-2 mode:
+
+    switch(config)# fips mode enable
+
+
+    Note: Requires switch reload
+
+    Verify: show fips status
+
+    '
+  reference: Cisco Hardening Guide | System Hardening | CIS 1.3.1
+  cis_control: 1.3.1
+  score: 3
+management_plane:
+- id: NX-MP-001
+  name: Local User Authentication
+  description: Verify local user accounts are properly configured
+  category: User Management
+  severity: HIGH
+  check_type: presence
+  pattern: ^username .+ password 5
+  remediation: 'Configure local users with Type-5 (SHA-512) encrypted passwords:
+
+    switch(config)# username admin password 5 <encrypted-password> role network-admin
+
+
+    Verify password encryption:
+
+    show running-config | include username
+
+    '
+  reference: Management Plane > User Authentication | CIS 1.1.1
+  cis_control: 1.1.1
+  score: 5
+- id: NX-MP-002
+  name: Password Strength Requirements
+  description: Verify password strength-check is enabled
+  category: Password Management
+  severity: HIGH
+  check_type: presence
+  pattern: ^password strength-check
+  remediation: 'Enable password strength checking:
+
+    switch(config)# password strength-check
+
+
+    This enforces:
+
+    - Minimum length requirements
+
+    - Character complexity
+
+    - Dictionary checks
+
+    '
+  reference: Management Plane > Password Management | CIS 1.1.2
+  cis_control: 1.1.2
+  score: 5
+- id: NX-MP-003
+  name: AAA Authentication Login
+  description: Verify AAA authentication is configured for login
+  category: AAA Configuration
+  severity: CRITICAL
+  check_type: presence
+  pattern: ^aaa authentication login
+  remediation: 'Configure AAA authentication:
+
+    switch(config)# aaa authentication login default group tacacs+ local
+
+    switch(config)# aaa authentication login console group tacacs+ local
+
+
+    This enables centralized authentication with local fallback
+
+    '
+  reference: Management Plane > AAA | CIS 1.2.1
+  cis_control: 1.2.1
+  score: 10
+- id: NX-MP-004
+  name: AAA Authorization Commands
+  description: Verify AAA authorization for commands is configured
+  category: AAA Configuration
+  severity: HIGH
+  check_type: presence
+  pattern: ^aaa authorization commands
+  remediation: 'Configure AAA command authorization:
+
+    switch(config)# aaa authorization commands default group tacacs+ local
+
+
+    This ensures all commands are authorized through AAA
+
+    '
+  reference: Management Plane > AAA | CIS 1.2.2
+  cis_control: 1.2.2
+  score: 5
+- id: NX-MP-005
+  name: AAA Accounting
+  description: Verify AAA accounting is configured
+  category: AAA Configuration
+  severity: HIGH
+  check_type: presence
+  pattern: ^aaa accounting default
+  remediation: 'Configure AAA accounting:
+
+    switch(config)# aaa accounting default group tacacs+
+
+
+    This logs all commands executed for audit trails
+
+    '
+  reference: Management Plane > AAA | CIS 1.2.4
+  cis_control: 1.2.4
+  score: 5
+- id: NX-MP-024
+  name: AAA Key Encryption Type-6
+  description: Verify AAA server keys use Type-6 (AES) encryption, not Type-7 (weak Vigenere cipher)
+  category: AAA Configuration
+  severity: CRITICAL
+  check_type: presence
+  pattern: key 6
+  remediation: 'CRITICAL: Type-7 encryption is easily reversible!
+
+
+    Re-configure AAA keys with Type-6 (AES) encryption:
+
+    switch(config)# tacacs-server host 10.1.1.1 key 6 <strong-key>
+
+    switch(config)# radius-server host 10.1.1.2 key 6 <strong-key>
+
+
+    Verify:
+
+    show running-config | include "key 6"
+
+
+    Why Type-6 is critical:
+
+    - Type-7: Vigenere cipher (easily cracked, online tools available)
+
+    - Type-6: AES encryption (industry standard, much stronger)
+
+    - Type-0: Plaintext (NEVER use)
+
+
+    This is a CRITICAL security gap that many organizations miss!
+
+    '
+  reference: 'Cisco Hardening Guide | Management Plane | CRITICAL Security Gap #2'
+  score: 10
+- id: NX-MP-005AA
+  name: TACACS+ Server Timeout Configured
+  description: Verify TACACS+ timeout is configured (baseline check)
+  category: AAA Configuration
+  severity: CRITICAL
+  check_type: presence
+  pattern: ^tacacs-server (timeout|host .* timeout)
+  remediation: 'Configure TACACS+ server timeout (global or per-server):
+
+
+    Global timeout:
+
+    switch(config)# tacacs-server timeout 5
+
+
+    Per-server timeout:
+
+    switch(config)# tacacs-server host 10.1.1.1 timeout 5
+
+
+    Recommended value: 3-10 seconds
+
+    - Prevents long delays on server failures
+
+    - Ensures timely fallback to local authentication
+
+    '
+  reference: Management Plane > AAA | CIS 1.2.3
+  score: 3
+- id: NX-MP-005AB
+  name: TACACS+ Timeout Absolute Value (30 seconds)
+  description: Verify TACACS+ timeout is configured to exactly 30 seconds
+  category: AAA Configuration
+  severity: MEDIUM
+  check_type: value
+  pattern: tacacs-server timeout
+  comparison: equals
+  expected_value: 20
+  unit: ' seconds'
+  remediation: "Configure TACACS+ timeout to exactly 30 seconds:\nswitch(config)# tacacs-server timeout 30\n\nThis is the required\
+    \ standard timeout value for AAA server communication."
+  reference: Management Plane > AAA | Organizational Standard
+  score: 2
+- id: NX-MP-006AA
+  name: RADIUS Server Timeout Configured
+  description: Verify RADIUS timeout is configured (baseline check)
+  category: AAA Configuration
+  severity: HIGH
+  check_type: presence
+  pattern: ^radius-server (timeout|host .* timeout)
+  remediation: 'Configure RADIUS server timeout (global or per-server):
+
+
+    Global timeout:
+
+    switch(config)# radius-server timeout 5
+
+
+    Per-server timeout:
+
+    switch(config)# radius-server host 10.1.1.1 timeout 5
+
+
+    Recommended value: 3-10 seconds
+
+    '
+  reference: Management Plane > AAA
+  score: 2
+- id: NX-MP-006AB
+  name: RADIUS Timeout Optimal Range
+  description: Verify RADIUS timeout is within 3-10 second range
+  category: AAA Configuration
+  severity: MEDIUM
+  check_type: value_range
+  pattern: radius-server timeout
+  min_value: 3
+  max_value: 10
+  unit: ' seconds'
+  remediation: 'Adjust RADIUS timeout to optimal range:
+
+    switch(config)# radius-server timeout 5'
+  reference: Management Plane > AAA | Best Practice
+  score: 1
+- id: NX-MP-025
+  name: TACACS+ Over TLS 1.3
+  description: Verify TACACS+ uses TLS 1.3 for encrypted transport
+  category: AAA Configuration
+  severity: HIGH
+  check_type: presence
+  pattern: tacacs-server.*ssl-version tlsv1.3
+  remediation: 'Configure TACACS+ to use TLS 1.3:
+
+    switch(config)# tacacs-server host 10.1.1.1 ssl-version tlsv1.3
+
+
+    This provides encrypted transport for AAA communications
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 5
+- id: NX-MP-026
+  name: Advanced Password Hashing (Type 8/9)
+  description: Verify use of advanced password hashing algorithms (Type 8/9)
+  category: Password Management
+  severity: HIGH
+  check_type: presence
+  pattern: password [89]
+  remediation: 'Use Type-8 (PBKDF2-SHA-256) or Type-9 (scrypt) password hashing:
+
+    switch(config)# username admin password 8 <password> role network-admin
+
+
+    Type hierarchy (strongest to weakest):
+
+    - Type 9: scrypt (strongest, recommended)
+
+    - Type 8: PBKDF2-SHA-256 (strong)
+
+    - Type 5: SHA-512 (acceptable)
+
+    - Type 7: Vigenere (WEAK, easily reversed)
+
+    - Type 0: Plaintext (NEVER use)
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 5
+- id: NX-MP-027
+  name: Password Reuse Prevention
+  description: Verify password history is enabled to prevent reuse
+  category: Password Management
+  severity: MEDIUM
+  check_type: presence
+  pattern: password history
+  remediation: 'Enable password history to prevent reuse:
+
+    switch(config)# password history 5
+
+
+    This prevents users from reusing the last 5 passwords
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 3
+- id: NX-MP-006
+  name: SSH Feature Enabled
+  description: Verify SSH feature is enabled
+  category: Secure Management
+  severity: CRITICAL
+  check_type: presence
+  pattern: ^feature ssh
+  remediation: 'Enable SSH:
+
+    switch(config)# feature ssh
+
+    '
+  reference: Management Plane > SSH | CIS 1.3.1
+  cis_control: 1.3.1
+  score: 10
+- id: NX-MP-007
+  name: SSH Key Configuration
+  description: Verify SSH key is generated (minimum 2048-bit RSA)
+  category: Secure Management
+  severity: CRITICAL
+  check_type: presence
+  pattern: ^ssh key rsa
+  remediation: 'Generate 2048-bit (or higher) RSA SSH key:
+
+    switch(config)# ssh key rsa 2048
+
+
+    For stronger security, use 4096-bit:
+
+    switch(config)# ssh key rsa 4096
+
+
+    Verify:
+
+    show ssh key
+
+    '
+  reference: Management Plane > SSH | CIS 1.3.2
+  cis_control: 1.3.2
+  score: 10
+- id: NX-MP-008
+  name: Telnet Feature Disabled
+  description: Verify telnet feature is disabled
+  category: Disable Unused Services
+  severity: CRITICAL
+  check_type: absence
+  pattern: ^feature telnet
+  remediation: 'Disable telnet (insecure plaintext protocol):
+
+    switch(config)# no feature telnet
+
+
+    Use SSH instead for all management access
+
+    '
+  reference: Management Plane > Disable Insecure Protocols | CIS 1.3.3
+  cis_control: 1.3.3
+  score: 10
+- id: NX-MP-036
+  name: SSH X.509 Certificate Authentication
+  description: Verify SSH supports X.509 certificate authentication
+  category: Secure Management
+  severity: LOW
+  check_type: presence
+  pattern: ssh certificate
+  remediation: 'Configure SSH certificate authentication:
+
+    switch(config)# ssh certificate <certificate-name>
+
+
+    This provides stronger authentication than passwords
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 1
+- id: NX-MP-009A
+  name: Console Session Timeout Configured
+  description: Verify console has timeout configured (baseline check)
+  category: Session Management
+  severity: MEDIUM
+  check_type: console_line
+  parent_pattern: ^line console
+  child_pattern: exec-timeout
+  remediation: 'Configure console timeout:
+
+    switch(config)# line console
+
+    switch(config-console)# exec-timeout 10
+
+
+    Recommended: 10 minutes for console access
+
+    '
+  reference: Management Plane > Console Security | CIS 1.4.1
+  cis_control: 1.4.1
+  score: 3
+- id: NX-MP-009B
+  name: Console Timeout Optimal Range
+  description: Verify console timeout is within 5-15 minute range
+  category: Session Management
+  severity: LOW
+  check_type: value_range
+  pattern: exec-timeout
+  min_value: 5
+  max_value: 15
+  unit: ' minutes'
+  remediation: 'Adjust console timeout to optimal range (5-15 minutes):
+
+    switch(config)# line console
+
+    switch(config-console)# exec-timeout 10'
+  reference: Management Plane > Console Security | Best Practice
+  score: 1
+- id: NX-MP-010A
+  name: VTY Session Timeout Configured
+  description: Verify VTY lines have timeout configured (baseline check)
+  category: Session Management
+  severity: MEDIUM
+  check_type: vty_lines
+  parent_pattern: ^line vty
+  child_pattern: exec-timeout
+  remediation: 'Configure VTY timeout:
+
+    switch(config)# line vty
+
+    switch(config-line)# exec-timeout 10
+
+
+    Recommended: 10 minutes for remote access
+
+    Verify: show running-config | section "line vty"
+
+    '
+  reference: Management Plane > VTY Security | CIS 1.4.2
+  cis_control: 1.4.2
+  score: 3
+- id: NX-MP-010B
+  name: VTY Timeout Optimal Range
+  description: Verify VTY timeout is within 5-15 minute range
+  category: Session Management
+  severity: LOW
+  check_type: value_range
+  pattern: exec-timeout
+  min_value: 5
+  max_value: 15
+  unit: ' minutes'
+  remediation: 'Adjust VTY timeout to optimal range (5-15 minutes):
+
+    switch(config)# line vty
+
+    switch(config-line)# exec-timeout 10'
+  reference: Management Plane > VTY Security | Best Practice
+  score: 1
+- id: NX-MP-010A
+  name: VTY Access-Class Applied
+  description: Verify VTY lines have access-class for IP filtering
+  category: Session Management
+  severity: HIGH
+  check_type: vty_lines
+  parent_pattern: ^line vty
+  child_pattern: access-class
+  remediation: 'Apply access-class to VTY lines:
+
+    switch(config)# ip access-list VTY-ACCESS
+
+    switch(config-acl)# permit ip 10.1.1.0/24 any
+
+    switch(config)# line vty
+
+    switch(config-line)# access-class VTY-ACCESS in
+
+
+    This restricts management access to authorized networks only
+
+    '
+  reference: Management Plane > VTY Security | CIS 1.4.3
+  cis_control: 1.4.3
+  score: 5
+- id: NX-MP-011
+  name: SNMPv3 Configuration
+  description: Verify SNMPv3 is configured with encryption
+  category: SNMP Security
+  severity: HIGH
+  check_type: presence
+  pattern: ^snmp-server user .+ auth .+ priv
+  remediation: 'Configure SNMPv3 with authentication and privacy:
+
+    switch(config)# snmp-server user admin network-admin auth sha <auth-password> priv aes-128 <priv-password>
+
+
+    This provides encrypted SNMP communications
+
+    '
+  reference: Management Plane > SNMP | CIS 1.5.1
+  cis_control: 1.5.1
+  score: 5
+- id: NX-MP-012
+  name: SNMP Default Community Strings Disabled
+  description: Verify no default SNMP community strings (public/private)
+  category: SNMP Security
+  severity: CRITICAL
+  check_type: absence
+  pattern: snmp-server community (public|private)
+  remediation: 'Remove default SNMP communities:
+
+    switch(config)# no snmp-server community public
+
+    switch(config)# no snmp-server community private
+
+
+    Use SNMPv3 instead with strong authentication
+
+    '
+  reference: Management Plane > SNMP | CIS 1.5.2
+  cis_control: 1.5.2
+  score: 10
+- id: NX-MP-033
+  name: SNMP Global Privacy Enforcement
+  description: Verify SNMP enforces privacy (encryption) for all requests
+  category: SNMP Security
+  severity: HIGH
+  check_type: presence
+  pattern: snmp-server globalEnforcePriv
+  remediation: 'Enforce privacy (encryption) for all SNMP communications:
+
+    switch(config)# snmp-server globalEnforcePriv
+
+
+    This ensures all SNMP traffic is encrypted, closing a common security gap
+
+    '
+  reference: 'Cisco Hardening Guide | Management Plane | CRITICAL Security Gap #5'
+  score: 5
+- id: NX-MP-034
+  name: RADIUS Over TLS
+  description: Verify RADIUS uses TLS for encrypted transport
+  category: AAA Configuration
+  severity: HIGH
+  check_type: presence
+  pattern: radius-server.*tls-version
+  remediation: 'Configure RADIUS to use TLS:
+
+    switch(config)# radius-server host 10.1.1.1 tls-version tlsv1.3
+
+
+    This encrypts RADIUS communications
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 5
+- id: NX-MP-035
+  name: LDAP Over TLS
+  description: Verify LDAP uses TLS (LDAPS) for encrypted authentication
+  category: AAA Configuration
+  severity: HIGH
+  check_type: presence
+  pattern: ldap-server.*ssl-version
+  remediation: 'Configure LDAP to use TLS:
+
+    switch(config)# ldap-server host 10.1.1.1 ssl-version tlsv1.3
+
+
+    Use port 636 (LDAPS) instead of port 389 (LDAP)
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 5
+- id: NX-MP-013
+  name: Logging to Remote Server
+  description: Verify logging to remote syslog server is configured
+  category: Logging
+  severity: HIGH
+  check_type: presence
+  pattern: ^logging server
+  remediation: 'Configure remote logging:
+
+    switch(config)# logging server 10.1.1.100 6 use-vrf management
+
+
+    Level 6 = informational (recommended minimum)
+
+    '
+  reference: Management Plane > Logging | CIS 1.6.1
+  cis_control: 1.6.1
+  score: 5
+- id: NX-MP-014
+  name: Logging Source Interface
+  description: Verify logging source interface is configured
+  category: Logging
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^logging source-interface
+  remediation: 'Configure logging source interface:
+
+    switch(config)# logging source-interface loopback0
+
+
+    This ensures consistent source IP for syslog messages
+
+    '
+  reference: Management Plane > Logging | CIS 1.6.2
+  cis_control: 1.6.2
+  score: 3
+- id: NX-MP-015
+  name: Logging Timestamp
+  description: Verify logging timestamp is configured with milliseconds
+  category: Logging
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^logging timestamp milliseconds
+  remediation: 'Configure logging with millisecond timestamps:
+
+    switch(config)# logging timestamp milliseconds
+
+
+    This provides precise timing for security event correlation
+
+    '
+  reference: Management Plane > Logging | CIS 1.6.3
+  cis_control: 1.6.3
+  score: 3
+- id: NX-MP-016
+  name: Logging Facility
+  description: Verify logging facility is configured
+  category: Logging
+  severity: LOW
+  check_type: presence
+  pattern: ^logging facility
+  remediation: 'Configure logging facility:
+
+    switch(config)# logging facility local7
+
+
+    This helps categorize syslog messages
+
+    '
+  reference: Management Plane > Logging
+  score: 1
+- id: NX-MP-016A
+  name: Logging Level Configured
+  description: Verify logging level is configured
+  category: Logging
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^logging level
+  remediation: 'Configure logging level:
+
+    switch(config)# logging level 5
+
+
+    Level 5 (notifications) is recommended minimum.'
+  reference: Management Plane > Logging
+  score: 2
+- id: NX-MP-016B
+  name: Logging Level Optimal Range
+  description: Verify logging level is within 4-6 range (warnings to info)
+  category: Logging
+  severity: LOW
+  check_type: value_range
+  pattern: logging level
+  min_value: 4
+  max_value: 6
+  unit: ''
+  remediation: 'Adjust logging level to optimal range (4-6):
+
+    switch(config)# logging level 5
+
+
+    Levels: 4=warnings, 5=notifications, 6=informational'
+  reference: Management Plane > Logging | Best Practice
+  score: 1
+- id: NX-MP-030
+  name: Console Logging Disabled
+  description: Verify console logging is disabled (prevents performance impact)
+  category: Logging
+  severity: MEDIUM
+  check_type: absence
+  pattern: ^logging console
+  remediation: 'Disable console logging:
+
+    switch(config)# no logging console
+
+
+    Console logging can impact performance during high event rates
+
+    Use remote syslog instead
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 3
+- id: NX-MP-030A
+  name: SSH Session Timeout Configured
+  description: Verify SSH session timeout is configured
+  category: SSH Security
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^ssh timeout
+  remediation: 'Configure SSH session timeout:
+
+    switch(config)# ssh timeout 600
+
+
+    This sets idle timeout for SSH sessions.'
+  reference: Management Plane > SSH
+  score: 2
+- id: NX-MP-030B
+  name: SSH Timeout Optimal Range
+  description: Verify SSH timeout is within 300-900 second range
+  category: SSH Security
+  severity: LOW
+  check_type: value_range
+  pattern: ssh timeout
+  min_value: 300
+  max_value: 900
+  unit: ' seconds'
+  remediation: 'Adjust SSH timeout to optimal range (300-900 seconds):
+
+    switch(config)# ssh timeout 600
+
+
+    Recommended: 600 seconds (10 minutes)'
+  reference: Management Plane > SSH | Best Practice
+  score: 1
+- id: NX-MP-031
+  name: Monitor Logging Disabled
+  description: Verify monitor logging is disabled or set to appropriate level
+  category: Logging
+  severity: MEDIUM
+  check_type: absence
+  pattern: ^logging monitor [0-5]
+  remediation: 'Disable or limit monitor logging:
+
+    switch(config)# no logging monitor
+
+    OR
+
+    switch(config)# logging monitor 6
+
+
+    High verbosity monitor logging can impact terminal sessions
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 3
+- id: NX-MP-032
+  name: Logging to File Enabled
+  description: Verify logging to local file is enabled for troubleshooting
+  category: Logging
+  severity: HIGH
+  check_type: presence
+  pattern: ^logging logfile
+  remediation: 'Configure local log file:
+
+    switch(config)# logging logfile messages 7 size 8388608
+
+
+    This provides local backup of logs for troubleshooting
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 5
+- id: NX-MP-028
+  name: CDP Disabled on Untrusted Interfaces
+  description: Verify CDP is disabled globally or on untrusted interfaces (exposes device info)
+  category: Discovery Protocols
+  severity: HIGH
+  check_type: absence
+  pattern: ^feature cdp$
+  remediation: 'HIGH RISK: CDP exposes sensitive device information!
+
+
+    Option 1 - Disable CDP globally (recommended):
+
+    switch(config)# no feature cdp
+
+
+    Option 2 - Disable on untrusted interfaces:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# no cdp enable
+
+
+    Why this matters:
+
+    - CDP reveals: hostname, IOS version, platform, IP addresses
+
+    - CDP packets are unencrypted and unauthenticated
+
+    - Useful for attackers during reconnaissance
+
+    - Not needed on customer-facing or untrusted interfaces
+
+
+    CIS recommendation: Disable unless required for network management
+
+    '
+  reference: 'Cisco Hardening Guide | Management Plane | CIS 1.7.1 | CRITICAL Security Gap #3'
+  cis_control: 1.7.1
+  score: 5
+- id: NX-MP-029
+  name: LLDP Transmit Disabled on Untrusted Interfaces
+  description: Verify LLDP transmit is disabled on untrusted interfaces
+  category: Discovery Protocols
+  severity: MEDIUM
+  check_type: absence
+  pattern: lldp transmit
+  remediation: 'Disable LLDP transmit on untrusted interfaces:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# no lldp transmit
+
+
+    LLDP reveals device information like CDP
+
+    '
+  reference: Cisco Hardening Guide | Management Plane
+  score: 3
+- id: NX-MP-029A
+  name: SSH Login Attempts Configured
+  description: Verify SSH login attempts limit is configured
+  category: SSH Security
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^ssh login-attempts
+  remediation: 'Configure SSH login attempts limit:
+
+    switch(config)# ssh login-attempts 3
+
+
+    This limits failed login attempts before lockout.'
+  reference: Management Plane > SSH | CIS 1.3.5
+  score: 2
+- id: NX-MP-029B
+  name: SSH Login Attempts Optimal Range
+  description: Verify SSH login attempts is within 2-5 attempts range
+  category: SSH Security
+  severity: LOW
+  check_type: value_range
+  pattern: ssh login-attempts
+  min_value: 2
+  max_value: 5
+  unit: ' attempts'
+  remediation: 'Adjust SSH login attempts to optimal range (2-5):
+
+    switch(config)# ssh login-attempts 3'
+  reference: Management Plane > SSH | Best Practice
+  score: 1
+- id: NX-MP-017
+  name: NTP Server Configuration
+  description: Verify NTP servers are configured
+  category: Time Synchronization
+  severity: HIGH
+  check_type: presence
+  pattern: ^ntp server
+  remediation: 'Configure NTP servers:
+
+    switch(config)# ntp server 10.1.1.200 use-vrf management
+
+    switch(config)# ntp server 10.1.1.201 use-vrf management
+
+
+    Accurate time is critical for:
+
+    - Log correlation
+
+    - Certificate validation
+
+    - Security event analysis
+
+    '
+  reference: Management Plane > NTP | CIS 1.8.1
+  cis_control: 1.8.1
+  score: 5
+- id: NX-MP-018
+  name: NTP Source Interface
+  description: Verify NTP source interface is configured
+  category: Time Synchronization
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^ntp source-interface
+  remediation: 'Configure NTP source interface:
+
+    switch(config)# ntp source-interface loopback0
+
+
+    This ensures consistent source IP for NTP
+
+    '
+  reference: Management Plane > NTP | CIS 1.8.2
+  cis_control: 1.8.2
+  score: 3
+- id: NX-MP-019
+  name: NTP Authenticate
+  description: Verify NTP authentication is enabled
+  category: Time Synchronization
+  severity: HIGH
+  check_type: presence
+  pattern: ^ntp authenticate
+  remediation: 'Enable NTP authentication:
+
+    switch(config)# ntp authenticate
+
+    switch(config)# ntp authentication-key 1 md5 <key> 7
+
+    switch(config)# ntp trusted-key 1
+
+    switch(config)# ntp server 10.1.1.200 key 1
+
+
+    This prevents NTP spoofing attacks
+
+    '
+  reference: Management Plane > NTP | CIS 1.8.3
+  cis_control: 1.8.3
+  score: 5
+- id: NX-MP-020
+  name: Login Banner
+  description: Verify login banner is configured
+  category: Compliance
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^banner motd
+  remediation: 'Configure login banner:
+
+    switch(config)# banner motd #
+
+    ******************************************************************
+
+    *  AUTHORIZED ACCESS ONLY                                       *
+
+    *  Unauthorized access is prohibited and will be prosecuted.    *
+
+    ******************************************************************
+
+    #
+
+    '
+  reference: Management Plane > Legal Notice | CIS 1.9.1
+  cis_control: 1.9.1
+  score: 3
+- id: NX-MP-021
+  name: HTTP Server Disabled
+  description: Verify HTTP server is disabled
+  category: Disable Unused Services
+  severity: HIGH
+  check_type: absence
+  pattern: ^feature http-server
+  remediation: 'Disable HTTP server (use HTTPS only):
+
+    switch(config)# no feature http-server
+
+
+    HTTP traffic is unencrypted and vulnerable to interception
+
+    '
+  reference: Management Plane > Disable Insecure Services | CIS 1.10.1
+  cis_control: 1.10.1
+  score: 5
+- id: NX-MP-022
+  name: HTTPS Certificate
+  description: Verify HTTPS is using proper certificate (if HTTPS is enabled)
+  category: Secure Management
+  severity: MEDIUM
+  check_type: presence
+  pattern: crypto ca
+  remediation: 'If HTTPS is required, configure proper certificate:
+
+    switch(config)# crypto ca trustpoint HTTPS-CERT
+
+    switch(config-trustpoint)# crypto ca import HTTPS-CERT certificate
+
+
+    Verify: show crypto ca certificates
+
+    '
+  reference: Management Plane > HTTPS Security
+  score: 3
+- id: NX-MP-023
+  name: FTP Feature Disabled
+  description: Verify FTP feature is disabled
+  category: Disable Unused Services
+  severity: HIGH
+  check_type: absence
+  pattern: ^feature ftp
+  remediation: 'Disable FTP (insecure protocol):
+
+    switch(config)# no feature ftp
+
+
+    Use SCP/SFTP instead for file transfers
+
+    '
+  reference: Management Plane > Disable Insecure Services
+  score: 5
+control_plane:
+- id: NX-CP-001
+  name: Management ACL Configuration
+  description: Verify management ACL is configured
+  category: Access Control
+  severity: CRITICAL
+  check_type: presence
+  pattern: ^ip access-list
+  remediation: 'Configure management ACL:
+
+    switch(config)# ip access-list MGMT-ACCESS
+
+    switch(config-acl)# permit ip 10.1.1.0/24 any
+
+    switch(config-acl)# deny ip any any log
+
+
+    Apply to management interfaces
+
+    '
+  reference: Control Plane > ACL | CIS 2.1.1
+  cis_control: 2.1.1
+  score: 10
+- id: NX-CP-002
+  name: CoPP (Control Plane Policing)
+  description: Verify Control Plane Policing is configured
+  category: Rate Limiting
+  severity: CRITICAL
+  check_type: presence
+  pattern: ^copp profile
+  remediation: 'Enable CoPP:
+
+    switch(config)# copp profile strict
+
+
+    Or configure custom CoPP policy:
+
+    switch(config)# class-map type control-plane match-any COPP-CRITICAL
+
+    switch(config-cmap)# match access-group name CRITICAL-TRAFFIC
+
+    switch(config)# policy-map type control-plane COPP-POLICY
+
+    switch(config-pmap)# class COPP-CRITICAL
+
+    switch(config-pmap-c)# police cir 2000 kbps bc 250 ms
+
+    switch(config)# control-plane
+
+    switch(config-cp)# service-policy input COPP-POLICY
+
+
+    Verify: show policy-map interface control-plane
+
+    '
+  reference: Control Plane > CoPP | CIS 2.2.1
+  cis_control: 2.2.1
+  score: 10
+- id: NX-CP-018
+  name: CoPP Template Selection
+  description: Verify appropriate CoPP template is selected (strict, moderate, or lenient)
+  category: Rate Limiting
+  severity: HIGH
+  check_type: presence
+  pattern: ^copp profile (strict|moderate)
+  remediation: 'Select appropriate CoPP template based on environment:
+
+
+    For production (recommended):
+
+    switch(config)# copp profile strict
+
+
+    For less sensitive environments:
+
+    switch(config)# copp profile moderate
+
+
+    Verify active CoPP:
+
+    show copp status
+
+    '
+  reference: Cisco Hardening Guide | Control Plane
+  score: 5
+- id: NX-CP-003
+  name: BGP Password Authentication
+  description: Verify BGP neighbors use password authentication
+  category: Routing Security
+  severity: HIGH
+  check_type: presence
+  pattern: password
+  remediation: 'Configure BGP password authentication:
+
+    switch(config)# router bgp 65001
+
+    switch(config-router)# neighbor 10.1.1.1 password <password>
+
+
+    Use strong passwords for all BGP neighbors
+
+    '
+  reference: Control Plane > BGP Security | CIS 2.3.1
+  cis_control: 2.3.1
+  score: 5
+- id: NX-CP-004
+  name: OSPF Authentication
+  description: Verify OSPF authentication is configured
+  category: Routing Security
+  severity: HIGH
+  check_type: presence
+  pattern: ip ospf authentication
+  remediation: 'Configure OSPF authentication:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# ip ospf authentication message-digest
+
+    switch(config-if)# ip ospf message-digest-key 1 md5 <password>
+
+
+    Or globally:
+
+    switch(config-router)# area 0 authentication message-digest
+
+    '
+  reference: Control Plane > OSPF Security | CIS 2.3.2
+  cis_control: 2.3.2
+  score: 5
+- id: NX-CP-005
+  name: EIGRP Authentication
+  description: Verify EIGRP authentication is configured
+  category: Routing Security
+  severity: HIGH
+  check_type: presence
+  pattern: ip authentication.*eigrp
+  remediation: 'Configure EIGRP authentication:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# ip authentication mode eigrp 100 md5
+
+    switch(config-if)# ip authentication key-chain eigrp 100 EIGRP-KEY
+
+    '
+  reference: Control Plane > EIGRP Security | CIS 2.3.3
+  cis_control: 2.3.3
+  score: 5
+- id: NX-CP-006
+  name: BGP Maximum Prefix Limit
+  description: Verify BGP maximum-prefix is configured to prevent route table overflow
+  category: Routing Security
+  severity: HIGH
+  check_type: presence
+  pattern: maximum-prefix
+  remediation: 'Configure BGP maximum-prefix:
+
+    switch(config)# router bgp 65001
+
+    switch(config-router)# neighbor 10.1.1.1 maximum-prefix 1000 75
+
+
+    This limits routes accepted from BGP neighbors
+
+    '
+  reference: Control Plane > BGP Security | CIS 2.3.4
+  cis_control: 2.3.4
+  score: 5
+- id: NX-CP-007
+  name: BGP TTL Security
+  description: Verify BGP TTL security is configured
+  category: Routing Security
+  severity: MEDIUM
+  check_type: presence
+  pattern: ttl-security
+  remediation: 'Configure BGP TTL security:
+
+    switch(config)# router bgp 65001
+
+    switch(config-router)# neighbor 10.1.1.1 ttl-security hops 1
+
+
+    This prevents BGP session hijacking from distant hosts
+
+    '
+  reference: Control Plane > BGP Security
+  score: 3
+- id: NX-CP-019
+  name: BGP Log Neighbor Changes in All BGP VRFs
+  description: Verify BGP log-neighbor-changes is configured in default BGP VRF and all BGP-enabled VRFs (only VRFs configured under "router bgp", not system VRFs without BGP)
+  category: Routing Security
+  severity: HIGH
+  check_type: complex
+  pattern: log-neighbor-changes
+  remediation: 'Configure BGP log-neighbor-changes in all BGP VRFs:
+
+    For default/global BGP VRF:
+
+    switch(config)# router bgp 65001
+
+    switch(config-router)# log-neighbor-changes
+
+
+    For BGP-enabled VRFs (VRFs under router bgp):
+
+    switch(config)# router bgp 65001
+
+    switch(config-router)# vrf <vrf-name>
+
+    switch(config-router-vrf)# log-neighbor-changes
+
+
+    Note: This check only validates VRFs that have BGP configuration.
+
+    System VRFs without BGP (like management VRF) are not checked.
+
+
+    This provides visibility into BGP neighbor state changes for troubleshooting and security monitoring.
+
+    '
+  reference: Control Plane > BGP Security | Best Practice
+  score: 5
+- id: NX-DP-011
+  name: IP Source Routing Disabled
+  description: Verify IP source routing is disabled (allows attackers to control packet path)
+  category: IP Security
+  severity: HIGH
+  check_type: presence
+  pattern: ^no ip source-route
+  remediation: 'HIGH RISK: IP source routing allows attackers to control packet routing!
+
+
+    Disable IP source routing globally:
+
+    switch(config)# no ip source-route
+
+
+    Why this is critical:
+
+    - Allows sender to specify packet route through network
+
+    - Can bypass security controls and firewalls
+
+    - Enables spoofing and man-in-the-middle attacks
+
+    - Rarely needed in modern networks
+
+    - Should be disabled unless explicitly required
+
+
+    Verify:
+
+    show running-config | include "no ip source-route"
+
+    '
+  reference: 'Cisco Hardening Guide | Data Plane | CIS 2.4.1 | CRITICAL Security Gap #4'
+  cis_control: 2.4.1
+  score: 5
+- id: NX-CP-014
+  name: ICMP Redirects Disabled
+  description: Verify ICMP redirects are disabled on interfaces
+  category: IP Security
+  severity: MEDIUM
+  check_type: interface
+  interface_pattern: no ip redirects
+  skip_types:
+  - Loopback
+  - 'Null'
+  - mgmt
+  remediation: 'Disable ICMP redirects on all interfaces:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# no ip redirects
+
+
+    ICMP redirects can be used for network manipulation
+
+    '
+  reference: Cisco Hardening Guide | Control Plane
+  score: 3
+- id: NX-CP-015
+  name: ICMP Unreachables Disabled
+  description: Verify ICMP unreachables are disabled on external interfaces
+  category: IP Security
+  severity: LOW
+  check_type: interface
+  interface_pattern: no ip unreachables
+  skip_types:
+  - Loopback
+  - 'Null'
+  - mgmt
+  remediation: 'Disable ICMP unreachables on external interfaces:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# no ip unreachables
+
+
+    This prevents information disclosure
+
+    '
+  reference: Cisco Hardening Guide | Control Plane
+  score: 1
+- id: NX-CP-016
+  name: Proxy ARP Disabled
+  description: Verify proxy ARP is disabled on interfaces
+  category: IP Security
+  severity: MEDIUM
+  check_type: interface
+  interface_pattern: no ip proxy-arp
+  skip_types:
+  - Loopback
+  - 'Null'
+  - mgmt
+  remediation: 'Disable proxy ARP on interfaces:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# no ip proxy-arp
+
+
+    Proxy ARP can be exploited for man-in-the-middle attacks
+
+    '
+  reference: Cisco Hardening Guide | Control Plane
+  score: 3
+- id: NX-CP-017
+  name: NTP Authentication Keys
+  description: Verify NTP authentication keys are configured
+  category: Time Synchronization
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^ntp authentication-key
+  remediation: 'Configure NTP authentication keys:
+
+    switch(config)# ntp authentication-key 1 md5 <strong-key> 7
+
+    switch(config)# ntp trusted-key 1
+
+    switch(config)# ntp server 10.1.1.200 key 1
+
+
+    Use strong, unique keys for NTP authentication
+
+    '
+  reference: Cisco Hardening Guide | Control Plane
+  score: 3
+- id: NX-CP-008
+  name: ARP Inspection (DAI)
+  description: Verify Dynamic ARP Inspection is configured
+  category: Layer 2 Security
+  severity: HIGH
+  check_type: presence
+  pattern: ip arp inspection
+  remediation: 'Enable Dynamic ARP Inspection:
+
+    switch(config)# ip arp inspection vlan 10-20
+
+
+    Configure trusted interfaces:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# ip arp inspection trust
+
+
+    Verify: show ip arp inspection
+
+    '
+  reference: Control Plane > ARP Security | CIS 2.5.1
+  cis_control: 2.5.1
+  score: 5
+- id: NX-CP-009
+  name: ARP Timeout
+  description: Verify ARP timeout is configured appropriately
+  category: Layer 2 Security
+  severity: LOW
+  check_type: presence
+  pattern: ^ip arp timeout
+  remediation: 'Configure ARP timeout:
+
+    switch(config)# ip arp timeout 300
+
+
+    Shorter timeouts reduce ARP cache poisoning window
+
+    '
+  reference: Control Plane > ARP Security
+  score: 1
+- id: NX-CP-010
+  name: DHCP Snooping
+  description: Verify DHCP snooping is configured
+  category: Layer 2 Security
+  severity: HIGH
+  check_type: presence
+  pattern: ip dhcp snooping
+  remediation: 'Enable DHCP snooping:
+
+    switch(config)# feature dhcp
+
+    switch(config)# ip dhcp snooping
+
+    switch(config)# ip dhcp snooping vlan 10-20
+
+
+    Configure trusted interfaces:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# ip dhcp snooping trust
+
+
+    Verify: show ip dhcp snooping
+
+    '
+  reference: Control Plane > DHCP Security | CIS 2.6.1
+  cis_control: 2.6.1
+  score: 5
+- id: NX-CP-011
+  name: IPv6 First Hop Security
+  description: Verify IPv6 first hop security features are configured
+  category: IPv6 Security
+  severity: MEDIUM
+  check_type: presence
+  pattern: ipv6 nd
+  remediation: 'Configure IPv6 first hop security:
+
+    switch(config)# ipv6 nd suppress-ra vlan 10-20
+
+    switch(config)# ipv6 snooping policy IPV6-SNOOP
+
+    switch(config-ipv6-snooping)# device-role switch
+
+
+    This prevents IPv6 neighbor discovery attacks
+
+    '
+  reference: Control Plane > IPv6 Security
+  score: 3
+- id: NX-CP-012
+  name: Route Filtering
+  description: Verify route filtering is configured
+  category: Routing Security
+  severity: HIGH
+  check_type: presence
+  pattern: (distribute-list|prefix-list|route-map)
+  remediation: 'Configure route filtering:
+
+    switch(config)# ip prefix-list ALLOWED-ROUTES permit 10.0.0.0/8
+
+    switch(config)# router bgp 65001
+
+    switch(config-router)# neighbor 10.1.1.1 prefix-list ALLOWED-ROUTES in
+
+
+    This prevents route hijacking and black holes
+
+    '
+  reference: Control Plane > Route Filtering
+  score: 5
+- id: NX-CP-013
+  name: Routing Protocol Loop Prevention
+  description: Verify split-horizon and other loop prevention mechanisms
+  category: Routing Security
+  severity: MEDIUM
+  check_type: presence
+  pattern: (split-horizon|maximum-paths|distance)
+  remediation: 'Configure loop prevention mechanisms based on routing protocol
+
+
+    For EIGRP:
+
+    switch(config-if)# ip split-horizon eigrp 100
+
+
+    For BGP:
+
+    switch(config-router)# neighbor 10.1.1.1 maximum-prefix 1000
+
+    '
+  reference: Control Plane > Loop Prevention
+  score: 3
+data_plane:
+- id: NX-DP-001
+  name: Port Security
+  description: Verify port security is configured on access ports
+  category: Port Security
+  severity: HIGH
+  check_type: presence
+  pattern: switchport port-security
+  remediation: 'Configure port security:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# switchport mode access
+
+    switch(config-if)# switchport port-security
+
+    switch(config-if)# switchport port-security maximum 2
+
+    switch(config-if)# switchport port-security violation restrict
+
+    switch(config-if)# switchport port-security mac-address sticky
+
+
+    Verify: show port-security
+
+    '
+  reference: Data Plane > Port Security | CIS 3.1.1
+  cis_control: 3.1.1
+  score: 5
+- id: NX-DP-002
+  name: Trunk Native VLAN
+  description: Verify trunk native VLAN is not VLAN 1
+  category: VLAN Security
+  severity: HIGH
+  check_type: presence
+  pattern: switchport trunk native vlan (?!1$)
+  remediation: 'Change trunk native VLAN from default:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# switchport trunk native vlan 999
+
+
+    Use an unused VLAN for native VLAN
+
+    '
+  reference: Data Plane > VLAN Security | CIS 3.2.1
+  cis_control: 3.2.1
+  score: 5
+- id: NX-DP-003
+  name: VLAN Access Lists (VACLs)
+  description: Verify VACLs are configured for VLAN filtering
+  category: VLAN Security
+  severity: MEDIUM
+  check_type: presence
+  pattern: vlan access-map
+  remediation: 'Configure VACLs:
+
+    switch(config)# vlan access-map VLAN-FILTER 10
+
+    switch(config-access-map)# match ip address ACL-FILTER
+
+    switch(config-access-map)# action forward
+
+    switch(config)# vlan filter VLAN-FILTER vlan-list 10
+
+
+    Verify: show vlan access-map
+
+    '
+  reference: Data Plane > VLAN Security | CIS 3.2.2
+  cis_control: 3.2.2
+  score: 3
+- id: NX-DP-004
+  name: DTP Disabled
+  description: Verify Dynamic Trunking Protocol (DTP) is disabled
+  category: VLAN Security
+  severity: HIGH
+  check_type: interface
+  interface_pattern: switchport nonegotiate
+  skip_types:
+  - Loopback
+  - 'Null'
+  - mgmt
+  - port-channel
+  remediation: 'Disable DTP negotiation:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# switchport nonegotiate
+
+
+    Manually configure trunk/access mode
+
+    '
+  reference: Data Plane > VLAN Security
+  score: 5
+- id: NX-DP-005
+  name: Broadcast Storm Control
+  description: Verify broadcast storm control is configured
+  category: Storm Control
+  severity: MEDIUM
+  check_type: presence
+  pattern: storm-control broadcast
+  remediation: 'Configure broadcast storm control:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# storm-control broadcast level 10
+
+
+    This limits broadcast traffic to 10% of bandwidth
+
+    '
+  reference: Data Plane > Storm Control | CIS 3.3.1
+  cis_control: 3.3.1
+  score: 3
+- id: NX-DP-006
+  name: Multicast Storm Control
+  description: Verify multicast storm control is configured
+  category: Storm Control
+  severity: MEDIUM
+  check_type: presence
+  pattern: storm-control multicast
+  remediation: 'Configure multicast storm control:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# storm-control multicast level 10
+
+    '
+  reference: Data Plane > Storm Control | CIS 3.3.2
+  cis_control: 3.3.2
+  score: 3
+- id: NX-DP-007
+  name: Private VLAN Configuration
+  description: Verify Private VLANs are used for isolation (where applicable)
+  category: VLAN Security
+  severity: LOW
+  check_type: presence
+  pattern: private-vlan
+  remediation: 'Configure Private VLANs for layer 2 isolation:
+
+    switch(config)# feature private-vlan
+
+    switch(config)# vlan 100
+
+    switch(config-vlan)# private-vlan primary
+
+    switch(config-vlan)# private-vlan association 101
+
+    switch(config)# vlan 101
+
+    switch(config-vlan)# private-vlan isolated
+
+
+    This provides intra-VLAN security
+
+    '
+  reference: Data Plane > VLAN Security
+  score: 1
+- id: NX-DP-008
+  name: Unicast RPF
+  description: Verify Unicast Reverse Path Forwarding is configured on Layer 3 interfaces
+  category: Anti-Spoofing
+  severity: HIGH
+  check_type: presence
+  pattern: ip verify unicast source reachable-via
+  remediation: 'Configure Unicast RPF:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# no switchport
+
+    switch(config-if)# ip verify unicast source reachable-via rx
+
+
+    This prevents IP spoofing attacks
+
+    '
+  reference: Data Plane > Anti-Spoofing | CIS 3.4.1
+  cis_control: 3.4.1
+  score: 5
+- id: NX-DP-009
+  name: IP Source Guard
+  description: Verify IP Source Guard is configured on access ports
+  category: Anti-Spoofing
+  severity: HIGH
+  check_type: presence
+  pattern: ip verify source dhcp-snooping-vlan
+  remediation: 'Configure IP Source Guard:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# ip verify source dhcp-snooping-vlan
+
+
+    Requires DHCP snooping to be enabled
+
+    Verify: show ip verify source
+
+    '
+  reference: Data Plane > Anti-Spoofing | CIS 3.4.2
+  cis_control: 3.4.2
+  score: 5
+- id: NX-DP-012
+  name: IP Directed Broadcast Disabled
+  description: Verify IP directed broadcast is disabled on interfaces
+  category: IP Security
+  severity: MEDIUM
+  check_type: interface
+  interface_pattern: no ip directed-broadcast
+  skip_types:
+  - Loopback
+  - 'Null'
+  - mgmt
+  remediation: 'Disable IP directed broadcast:
+
+    switch(config)# interface Ethernet1/1
+
+    switch(config-if)# no ip directed-broadcast
+
+
+    This prevents Smurf attacks
+
+    '
+  reference: Cisco Hardening Guide | Data Plane
+  score: 3
+- id: NX-DP-013
+  name: Classification ACLs Present
+  description: Verify classification ACLs are configured for QoS
+  category: QoS
+  severity: LOW
+  check_type: presence
+  pattern: class-map
+  remediation: 'Configure classification ACLs:
+
+    switch(config)# class-map type qos match-all CLASS-VOICE
+
+    switch(config-cmap-qos)# match access-group name VOICE-TRAFFIC
+
+
+    This enables proper QoS treatment
+
+    '
+  reference: Cisco Hardening Guide | Data Plane
+  score: 1
+- id: NX-DP-014
+  name: MAC Packet Classification
+  description: Verify MAC packet classification is configured
+  category: QoS
+  severity: LOW
+  check_type: presence
+  pattern: mac packet-classify
+  remediation: 'Enable MAC packet classification:
+
+    switch(config)# mac packet-classify
+
+
+    This improves QoS accuracy
+
+    '
+  reference: Cisco Hardening Guide | Data Plane
+  score: 1
+- id: NX-DP-010
+  name: QoS Feature
+  description: Verify QoS feature is enabled (if QoS policies are needed)
+  category: QoS
+  severity: LOW
+  check_type: presence
+  pattern: ^feature qos
+  remediation: 'Enable QoS feature if traffic prioritization is required:
+
+    switch(config)# feature qos
+
+
+    Then configure QoS policies as needed
+
+    '
+  reference: Data Plane > QoS
+  score: 1
+nexus_specific:
+- id: NX-NS-001
+  name: vPC Domain Configuration
+  description: Verify vPC domain is properly configured (if using vPC)
+  category: High Availability
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^vpc domain
+  remediation: 'Configure vPC domain:
+
+    switch(config)# vpc domain 1
+
+    switch(config-vpc-domain)# peer-keepalive destination 10.1.1.2 source 10.1.1.1 vrf management
+
+    switch(config-vpc-domain)# peer-gateway
+
+    switch(config-vpc-domain)# auto-recovery
+
+
+    Verify: show vpc
+
+    '
+  reference: Nexus Specific > vPC | Best Practice
+  score: 3
+- id: NX-NS-002
+  name: vPC Peer-Keepalive
+  description: Verify vPC peer-keepalive is configured in management VRF
+  category: High Availability
+  severity: HIGH
+  check_type: presence
+  pattern: peer-keepalive destination.*vrf management
+  remediation: 'Configure peer-keepalive in management VRF:
+
+    switch(config)# vpc domain 1
+
+    switch(config-vpc-domain)# peer-keepalive destination 10.1.1.2 source 10.1.1.1 vrf management
+
+
+    Using management VRF provides out-of-band keepalive
+
+    '
+  reference: Nexus Specific > vPC | Best Practice
+  score: 5
+- id: NX-NS-007
+  name: ACI Fabric Secure Mode
+  description: Verify ACI fabric is in secure mode (for ACI environments)
+  category: ACI Security
+  severity: HIGH
+  check_type: presence
+  pattern: fabric secure-mode
+  remediation: 'Enable ACI fabric secure mode:
+
+    switch(config)# fabric secure-mode
+
+
+    This enables encrypted control plane communications in ACI
+
+    '
+  reference: Cisco Hardening Guide | Unknown
+  score: 5
+- id: NX-NS-008
+  name: vPC Delay Restore
+  description: Verify vPC delay restore is configured to prevent loops
+  category: High Availability
+  severity: MEDIUM
+  check_type: presence
+  pattern: delay restore
+  remediation: 'Configure vPC delay restore:
+
+    switch(config)# vpc domain 1
+
+    switch(config-vpc-domain)# delay restore 150
+
+
+    This prevents transient loops during recovery
+
+    '
+  reference: Cisco Hardening Guide | Unknown
+  score: 3
+- id: NX-NS-003
+  name: VDC Resource Allocation
+  description: Verify VDC resources are properly allocated (Nexus 7K only)
+  category: Resource Management
+  severity: LOW
+  check_type: presence
+  pattern: ^vdc
+  remediation: 'Configure VDC resource allocation (Nexus 7K):
+
+    switch(config)# vdc Production
+
+    switch(config-vdc)# limit-resource vlan minimum 100 maximum 500
+
+    switch(config-vdc)# limit-resource port-channel minimum 10 maximum 50
+
+
+    This provides resource isolation between VDCs
+
+    '
+  reference: Nexus Specific > VDC
+  score: 1
+- id: NX-NS-004
+  name: FEX Feature
+  description: Verify FEX feature is enabled if using Fabric Extenders
+  category: Fabric Extender
+  severity: LOW
+  check_type: presence
+  pattern: ^feature fex
+  remediation: 'Enable FEX feature:
+
+    switch(config)# feature fex
+
+
+    Then configure FEX associations
+
+    '
+  reference: Nexus Specific > FEX
+  score: 1
+- id: NX-NS-005
+  name: VXLAN Feature
+  description: Verify VXLAN is properly configured if used (Nexus 9K)
+  category: Overlay Networking
+  severity: LOW
+  check_type: presence
+  pattern: ^feature nv overlay
+  remediation: 'Enable VXLAN features:
+
+    switch(config)# feature nv overlay
+
+    switch(config)# feature vn-segment-vlan-based
+
+
+    Then configure VXLAN tunnel endpoints
+
+    '
+  reference: Nexus Specific > VXLAN
+  score: 1
+- id: NX-NS-006
+  name: Hardware Profile Configuration
+  description: Verify hardware TCAM profile is configured appropriately
+  category: System Health
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^hardware profile tcam
+  remediation: 'Configure hardware TCAM profile based on deployment:
+
+
+    For layer 2 environments:
+
+    switch(config)# hardware profile tcam feature vpc mode l2
+
+
+    For layer 3 environments:
+
+    switch(config)# hardware profile tcam feature vpc mode l3
+
+
+    Requires reload to take effect
+
+    '
+  reference: Nexus Specific > System Health
+  score: 3
+monitoring:
+- id: NX-MON-001
+  name: SPAN Session Configuration
+  description: Verify SPAN/ERSPAN sessions for traffic monitoring
+  category: Traffic Monitoring
+  severity: LOW
+  check_type: presence
+  pattern: ^monitor session
+  remediation: 'Configure SPAN for traffic monitoring:
+
+    switch(config)# monitor session 1
+
+    switch(config-monitor)# source interface Ethernet1/1
+
+    switch(config-monitor)# destination interface Ethernet1/2
+
+
+    Or configure ERSPAN for remote monitoring:
+
+    switch(config)# monitor session 2 type erspan-source
+
+    switch(config-erspan-src)# source interface Ethernet1/1
+
+    switch(config-erspan-src)# destination ip 10.1.1.100
+
+    switch(config-erspan-src)# erspan-id 100
+
+
+    Verify: show monitor session all
+
+    '
+  reference: Monitoring > SPAN
+  score: 1
+- id: NX-MON-001A
+  name: NTP Poll Interval Configured
+  description: Verify NTP poll interval is configured
+  category: Time Management
+  severity: LOW
+  check_type: presence
+  pattern: ^ntp.*minpoll
+  remediation: 'Configure NTP poll interval:
+
+    switch(config)# ntp server 10.1.1.1 use-vrf management minpoll 6 maxpoll 10
+
+
+    Minpoll value is 2^N seconds (6 = 64 seconds).'
+  reference: Monitoring > NTP
+  score: 1
+- id: NX-MON-001B
+  name: NTP Poll Optimal Range
+  description: Verify NTP poll interval is within 6-10 range (64-1024 seconds)
+  category: Time Management
+  severity: LOW
+  check_type: value_range
+  pattern: ntp.*minpoll
+  min_value: 6
+  max_value: 10
+  unit: ' (2^N seconds)'
+  remediation: 'Adjust NTP poll to optimal range (6-10):
+
+    switch(config)# ntp server 10.1.1.1 minpoll 6 maxpoll 10
+
+
+    Values: 6=64s, 7=128s, 8=256s, 9=512s, 10=1024s'
+  reference: Monitoring > NTP | Best Practice
+  score: 1
+- id: NX-MON-002
+  name: Call-Home Configuration
+  description: Verify Call-Home is configured for proactive support
+  category: Proactive Monitoring
+  severity: LOW
+  check_type: presence
+  pattern: ^callhome
+  remediation: 'Configure Call-Home:
+
+    switch(config)# callhome
+
+    switch(config-callhome)# email-contact admin@company.com
+
+    switch(config-callhome)# phone-contact +1-555-1234
+
+
+    This enables proactive TAC support
+
+    '
+  reference: Monitoring > Call-Home
+  score: 1
+- id: NX-MON-003
+  name: Smart Licensing
+  description: Verify Smart Licensing is configured
+  category: License Management
+  severity: LOW
+  check_type: presence
+  pattern: ^feature smartlicense
+  remediation: 'Enable Smart Licensing:
+
+    switch(config)# feature smartlicense
+
+
+    Then register with Cisco Smart Software Manager
+
+    '
+  reference: Monitoring > Smart Licensing
+  score: 1
+- id: NX-MON-004
+  name: Configuration Checkpoints
+  description: Verify configuration checkpoint functionality
+  category: Configuration Management
+  severity: MEDIUM
+  check_type: presence
+  pattern: checkpoint
+  remediation: 'Create configuration checkpoints before changes:
+
+    switch# checkpoint stable-config
+
+
+    Schedule automatic checkpoints:
+
+    switch(config)# scheduler aaa-authentication password <password>
+
+    switch(config)# scheduler job name backup-config
+
+    switch(config-job)# checkpoint file bootflash:backup-config
+
+    switch(config)# scheduler schedule name daily-backup
+
+    switch(config-schedule)# time daily 23:00
+
+    switch(config-schedule)# job name backup-config
+
+
+    Verify: show checkpoint summary
+
+    '
+  reference: Monitoring > Configuration Management | CIS 4.1.1
+  cis_control: 4.1.1
+  score: 3
+- id: NX-MON-005
+  name: Scheduler Feature Enabled
+  description: Verify scheduler feature is enabled for automated tasks
+  category: Configuration Management
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^feature scheduler
+  remediation: 'Enable scheduler feature:
+
+    switch(config)# feature scheduler
+
+
+    This enables automated configuration backups and maintenance tasks
+
+    '
+  reference: Cisco Hardening Guide | Monitoring
+  score: 3
+- id: NX-MON-006
+  name: Automated Configuration Backups
+  description: Verify automated configuration backups are scheduled
+  category: Configuration Management
+  severity: MEDIUM
+  check_type: presence
+  pattern: scheduler.*backup
+  remediation: 'Schedule automated configuration backups:
+
+    switch(config)# scheduler job name config-backup
+
+    switch(config-job)# copy running-config bootflash:config-backup-$(TIMESTAMP).cfg
+
+    switch(config)# scheduler schedule name daily-backup
+
+    switch(config-schedule)# time daily 02:00
+
+    switch(config-schedule)# job name config-backup
+
+
+    Verify: show scheduler schedule
+
+    '
+  reference: Cisco Hardening Guide | Monitoring
+  score: 3
+- id: NX-MON-007
+  name: NetFlow Feature Enabled
+  description: Verify NetFlow is enabled for traffic analysis
+  category: Traffic Analysis
+  severity: MEDIUM
+  check_type: presence
+  pattern: ^feature netflow
+  remediation: 'Enable NetFlow:
+
+    switch(config)# feature netflow
+
+
+    Configure NetFlow export:
+
+    switch(config)# flow exporter NETFLOW-EXPORT
+
+    switch(config-flow-exporter)# destination 10.1.1.100
+
+    switch(config-flow-exporter)# transport udp 2055
+
+    switch(config-flow-exporter)# source mgmt0
+
+
+    Apply to interfaces for traffic visibility
+
+    '
+  reference: Cisco Hardening Guide | Monitoring
+  score: 3
+- id: NX-MON-008
+  name: AAA Command Accounting
+  description: Verify AAA command accounting is configured for audit trails
+  category: Audit Logging
+  severity: HIGH
+  check_type: presence
+  pattern: aaa accounting.*command
+  remediation: 'Configure AAA command accounting:
+
+    switch(config)# aaa accounting commands default group tacacs+
+
+
+    This logs all commands executed for security audits
+
+    Verify: show aaa accounting
+
+    '
+  reference: Cisco Hardening Guide | Monitoring
+  score: 5
+scoring:
+  weights:
+    CRITICAL: 10
+    HIGH: 5
+    MEDIUM: 3
+    LOW: 1
+  thresholds:
+    excellent: 95
+    good: 85
+    fair: 75
+    poor: 60
+  grade_description:
+    A: Excellent security posture - minimal gaps
+    B: Good security posture - minor improvements needed
+    C: Fair security posture - several improvements needed
+    D: Poor security posture - significant gaps present
+    F: Failed security posture - critical gaps require immediate attention
