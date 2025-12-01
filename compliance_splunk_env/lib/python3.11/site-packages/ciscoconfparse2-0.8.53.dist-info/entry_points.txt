@@ -1,0 +1,2 @@
+[console_scripts]
+ccp = ciscoconfparse2.cli_script:ccp_script_entry
